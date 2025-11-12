@@ -29,7 +29,6 @@ export class RegisterUserDto {
 
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   fullName: string;
 
   @IsString()

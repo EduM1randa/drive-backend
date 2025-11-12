@@ -3,6 +3,10 @@ import { Document } from 'mongoose';
 
 export type UserDocument = User & Document;
 
+/**
+ * Esquema de usuario en MongoDB que representa el perfil almacenado en
+ * la colección `users`. Incluye campos para recuperación de contraseña.
+ */
 @Schema({ timestamps: true })
 export class User {
   @Prop({ required: true, unique: true, index: true })

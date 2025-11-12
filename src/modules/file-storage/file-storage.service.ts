@@ -3,7 +3,12 @@ import { CreateFileStorageDto } from './dto/create-file-storage.dto';
 import { UpdateFileStorageDto } from './dto/update-file-storage.dto';
 
 @Injectable()
+/**
+ * Servicio para manejar el almacenamiento de archivos. Implementa operaciones
+ * CRUD básicas sobre metadatos de archivos.
+ */
 export class FileStorageService {
+  /** Crea un nuevo registro de FileStorage. */
   create(createFileStorageDto: CreateFileStorageDto) {
     return 'This action adds a new fileStorage';
   }

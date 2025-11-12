@@ -20,7 +20,7 @@ export class FirebaseJwtStrategy extends PassportStrategy(
   'firebase-jwt',
 ) {
   constructor(private firebaseAdminService: FirebaseAdminService) {
-    super(); // La superclase se encarga de extraer el token del header Authorization: Bearer
+    super();
   }
 
   /**
@@ -29,16 +29,12 @@ export class FirebaseJwtStrategy extends PassportStrategy(
    */
   async validate(token: string): Promise<AuthUser> {
     try {
-      // **LA VERIFICACIÓN CRÍTICA OCURRE AQUÍ**
-      const decodedToken =
-        await this.firebaseAdminService.auth.verifyIdToken(token);
+      const decodedToken = await this.firebaseAdminService.auth.verifyIdToken(
+        token,
+      );
 
-      // Si la verificación tiene éxito, devolvemos el payload decodificado (AuthUser)
-      // Nest.js inyectará este objeto en req.user
       return decodedToken as AuthUser;
     } catch (error) {
-      // Si el token es inválido, expiró, o la firma es incorrecta, FirebaseAdmin lanza un error.
-      // Lanzamos una excepción de Nest.js que resulta en una respuesta 401 Unauthorized.
       console.error('Verificación de token fallida:', error.message);
       throw new UnauthorizedException(
         'Token de autenticación inválido o expirado.',

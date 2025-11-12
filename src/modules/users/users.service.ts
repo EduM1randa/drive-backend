@@ -9,14 +9,16 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
 import { RegisterUserDto } from '../auth/dto/register.dto';
-// Importamos el DTO de registro para tipar los datos entrantes
 
 @Injectable()
+/**
+ * Servicio de usuarios: encapsula operaciones sobre el perfil de usuario
+ * guardado en MongoDB (creación, búsqueda, actualización, generación de códigos).
+ */
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
   constructor(
-    // Inyectamos el modelo de Mongoose
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
   ) {}
@@ -62,7 +64,6 @@ export class UsersService {
    * Necesario para el flujo de recuperación de contraseña.
    */
   async findProfileByEmail(email: string): Promise<UserDocument | null> {
-    // Usamos .select() para incluir los campos ocultos (resetPasswordCode)
     return this.userModel
       .findOne({ email: email.toLowerCase() })
       .select('+resetPasswordCode +resetPasswordExpires')
@@ -113,8 +114,8 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado.');
     }
 
-    const code = `${Math.floor(100000 + Math.random() * 900000)}`; // 6 dígitos
-    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+    const code = `${Math.floor(100000 + Math.random() * 900000)}`;
+    const expires = new Date(Date.now() + 60 * 60 * 1000);
 
     user.resetPasswordCode = code;
     user.resetPasswordExpires = expires;

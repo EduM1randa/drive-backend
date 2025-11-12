@@ -5,18 +5,24 @@ import {
 } from '@nestjs/common';
 import * as admin from 'firebase-admin';
 import { ConfigService } from '@nestjs/config';
-// Importamos 'fs' y 'path' para resolver la ruta (ya están en tu archivo)
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
+/**
+ * Servicio que inicializa y expone el cliente de administración de Firebase.
+ */
 @Injectable()
 export class FirebaseAdminService implements OnModuleInit {
   public auth: admin.auth.Auth;
 
   constructor(private configService: ConfigService) {}
 
+  /**
+   * Inicializa el SDK de Firebase Admin usando la ruta definida en
+   * `FIREBASE_SERVICE_ACCOUNT_KEY`. Lanza `InternalServerErrorException`
+   * si la variable no está definida o el archivo no existe.
+   */
   onModuleInit() {
-    // Leemos la variable. Esperamos que contenga una RUTA RELATIVA (ej: ./secrets/archivo.json)
     const filePath = this.configService.get<string>(
       'FIREBASE_SERVICE_ACCOUNT_KEY',
     );
@@ -28,16 +34,12 @@ export class FirebaseAdminService implements OnModuleInit {
     }
 
     try {
-      // Usamos path.resolve(process.cwd(), filePath) para asegurar que la ruta se resuelve desde la raíz del backend
       const absolutePath = resolve(process.cwd(), filePath);
 
-      // La verificación del archivo es muy importante
       if (!existsSync(absolutePath)) {
         throw new Error(`Fichero no encontrado: ${absolutePath}`);
       }
 
-      // **La inicialización del SDK de Firebase puede aceptar la ruta directamente**
-      // Usando admin.credential.cert(ruta/al/archivo)
       if (!admin.apps.length) {
         admin.initializeApp({
           credential: admin.credential.cert(absolutePath),
@@ -47,7 +49,6 @@ export class FirebaseAdminService implements OnModuleInit {
       this.auth = admin.auth();
       console.log('Firebase Admin SDK inicializado correctamente.');
     } catch (error) {
-      // Capturamos cualquier error, incluyendo 'Fichero no encontrado'
       console.error(
         'Error al inicializar Firebase Admin SDK. Mensaje:',
         error?.message ?? error,

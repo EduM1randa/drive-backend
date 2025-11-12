@@ -1,7 +1,9 @@
 import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
 
 export class CreateUserDto {
-  // El UID de Firebase es el identificador principal
+  /**
+   * Firebase UID del usuario — identificador principal.
+   */
   @IsNotEmpty()
   @IsString()
   firebaseUid: string;
