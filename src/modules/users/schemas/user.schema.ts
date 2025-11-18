@@ -24,8 +24,18 @@ export class User {
   @Prop()
   phone?: string;
 
-  @Prop({ default: 'free' })
-  role?: string;
+  @Prop({ default: false })
+  isTfaEnabled: boolean;
+
+  /**
+   * Si el usuario está registrado en un proveedor externo de MFA (ej. Twilio Authy),
+   * aquí guardamos el id devuelto por ese proveedor.
+   */
+  @Prop({ type: String, select: false })
+  twilioAuthyId?: string | null;
+
+  @Prop({ trim: true })
+  tfaSecret?: string;
 
   @Prop({ type: String, select: false })
   resetPasswordCode?: string | null;

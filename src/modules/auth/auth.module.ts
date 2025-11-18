@@ -9,6 +9,7 @@ import { UsersModule } from '../users/users.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { AuthService } from './auth.service';
+import { OtpAuthenticatorService } from './otp-authenticator.service';
 
 @Module({
   imports: [
@@ -20,7 +21,12 @@ import { AuthService } from './auth.service';
     PassportModule.register({ defaultStrategy: 'firebase-jwt' }),
   ],
   controllers: [AuthController],
-  providers: [FirebaseJwtStrategy, IsUsernameAvailable, AuthService],
+  providers: [
+    FirebaseJwtStrategy,
+    IsUsernameAvailable,
+    AuthService,
+    OtpAuthenticatorService,
+  ],
   exports: [PassportModule, FirebaseJwtStrategy],
 })
 export class AuthModule {}

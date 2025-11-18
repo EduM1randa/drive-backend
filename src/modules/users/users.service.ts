@@ -12,8 +12,7 @@ import { RegisterUserDto } from '../auth/dto/register.dto';
 
 @Injectable()
 /**
- * Servicio de usuarios: encapsula operaciones sobre el perfil de usuario
- * guardado en MongoDB (creación, búsqueda, actualización, generación de códigos).
+ * Servicio de usuarios.
  */
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -25,12 +24,13 @@ export class UsersService {
 
   /**
    * Crea un perfil de usuario en MongoDB.
+   *
    * @param firebaseUid UID del usuario en Firebase Auth
    * @param email Correo electrónico del usuario
    * @param dto Datos adicionales del usuario (username, fullName, phone)
-   * @return El documento del perfil de usuario creado
-   * @throws ConflictException si el username o email ya existen
-   * @throws InternalServerErrorException para otros errores de base de datos
+   * @returns El documento del perfil de usuario creado
+   * @throws `ConflictException` si el username o email ya existen
+   * @throws `InternalServerErrorException` para otros errores de base de datos
    */
   async createProfile(
     firebaseUid: string,
@@ -61,7 +61,12 @@ export class UsersService {
 
   /**
    * Busca un perfil de usuario por su email.
-   * Necesario para el flujo de recuperación de contraseña.
+   *
+   * Selecciona los campos necesarios para el flujo de recuperación
+   * (`resetPasswordCode`, `resetPasswordExpires`).
+   *
+   * @param email Email a buscar
+   * @returns `UserDocument` o `null` si no existe
    */
   async findProfileByEmail(email: string): Promise<UserDocument | null> {
     return this.userModel
@@ -72,7 +77,14 @@ export class UsersService {
 
   /**
    * Busca un perfil por Firebase UID y lo actualiza.
-   * Usado para el rollback o para guardar el código de reseteo.
+   *
+   * Usado para el rollback tras fallos de creación o para actualizar
+   * campos del perfil (p.ej. `tfaSecret`, `isTfaEnabled`, `resetPasswordCode`).
+   *
+   * @param firebaseUid UID de Firebase
+   * @param updateData Campos a actualizar
+   * @returns Perfil actualizado
+   * @throws `NotFoundException` si no se encuentra el perfil
    */
   async updateProfileByFirebaseUid(
     firebaseUid: string,
@@ -92,6 +104,9 @@ export class UsersService {
 
   /**
    * Comprueba si un username ya existe (normalizado a lowercase).
+   *
+   * @param username Nombre de usuario a comprobar
+   * @returns `true` si existe, `false` en caso contrario
    */
   async isUsernameTaken(username: string): Promise<boolean> {
     if (!username) return false;
@@ -102,7 +117,10 @@ export class UsersService {
 
   /**
    * Genera y persiste un código de recuperación para el email dado.
-   * Retorna el documento de usuario actualizado (incluye resetPasswordCode).
+   *
+   * @param email Email del usuario
+   * @returns Documento de usuario actualizado con `resetPasswordCode`
+   * @throws `NotFoundException` si el email no está registrado
    */
   async generatePasswordReset(email: string): Promise<UserDocument> {
     const user = await this.userModel
@@ -122,5 +140,15 @@ export class UsersService {
 
     await user.save();
     return user;
+  }
+
+  /**
+   * Busca un usuario por su Firebase UID.
+   *
+   * @param firebaseUid UID de Firebase
+   * @returns `UserDocument` o `null` si no existe
+   */
+  async findOneByUid(firebaseUid: string): Promise<UserDocument | null> {
+    return this.userModel.findOne({ firebaseUid }).exec();
   }
 }

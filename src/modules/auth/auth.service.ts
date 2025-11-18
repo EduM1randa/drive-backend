@@ -13,25 +13,106 @@ import { plainToInstance } from 'class-transformer';
 import { validateOrReject, ValidationError } from 'class-validator';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
+import { OtpAuthenticatorService } from './otp-authenticator.service';
 import { PasswordResetDto } from './dto/pass-reset.dto';
 import { UnauthorizedException } from '@nestjs/common';
+import { PasswordRequestDto } from './dto/pass-request.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { TfaCodeDto } from './dto/tfa-code.dto';
+import {
+  AuthLoginResponse,
+  LoginTfaResponse,
+  VerifyTokenResponse,
+  PasswordRequestResponse,
+  PasswordResetResponse,
+  TfaGenerateResponse,
+  TfaConfirmResponse,
+} from '../../common/types/response.types';
 
 @Injectable()
 /**
- * Servicio de autenticación que orquesta la creación de usuarios en
- * Firebase Auth y su persistencia en MongoDB (perfil de usuario).
- * Contiene métodos para registro, recuperación de contraseña y verificación.
+ * Servicio de autenticación.
  */
 export class AuthService {
   constructor(
     private firebaseAdmin: FirebaseAdminService,
     private userService: UsersService,
     private emailService: EmailService,
+    private otpAuthenticatorService: OtpAuthenticatorService,
   ) {}
 
   /**
-   * Crea un usuario en Firebase Auth y luego en MongoDB, implementando un
-   * mecanismo de ROLLBACK si la inserción en MongoDB falla.
+   * Genera un secreto TOTP (provisioning URI) para el usuario identificado
+   * por `firebaseUid`, persiste el secreto en el perfil (sin habilitar TFA)
+   * y retorna la URI para generar el QR en el controlador.
+   */
+  async generateTfaSecretForUser(
+    firebaseUid: string,
+  ): Promise<TfaGenerateResponse> {
+    const profile = await this.userService.findOneByUid(firebaseUid);
+    if (!profile) throw new NotFoundException('Usuario no encontrado');
+
+    if (profile.isTfaEnabled) {
+      throw new BadRequestException('TFA ya está habilitado para este usuario');
+    }
+
+    const { uri, secretAuthenticator } =
+      await this.otpAuthenticatorService.generateSecretAuthenticator(
+        profile.email,
+      );
+
+    await this.userService.updateProfileByFirebaseUid(profile.firebaseUid, {
+      tfaSecret: secretAuthenticator,
+    });
+
+    return { uri, secret: secretAuthenticator };
+  }
+
+  /**
+   * Verifica el código TOTP (6 dígitos) para el usuario y, si es correcto,
+   * habilita 2FA en el perfil.
+   *
+   * @param firebaseUid UID del usuario en Firebase
+   * @param code Código TOTP proporcionado por el usuario
+   * @returns `{ success: true, message: 'TFA habilitado' }` en caso de éxito
+   * @throws `BadRequestException` si falta el código, no se inició TFA o el
+   *   código es inválido.
+   */
+  async confirmTfaForUser(
+    firebaseUid: string,
+    dto: TfaCodeDto,
+  ): Promise<TfaConfirmResponse> {
+    const { code } = dto;
+    if (!code) throw new BadRequestException('El código TFA es obligatorio');
+
+    const profile = await this.userService.findOneByUid(firebaseUid);
+    if (!profile || !profile.tfaSecret) {
+      throw new BadRequestException('TFA no iniciado para este usuario');
+    }
+
+    const ok = await this.otpAuthenticatorService.verifyCode(
+      String(code).trim(),
+      profile.tfaSecret,
+    );
+
+    if (!ok) throw new BadRequestException('Código TFA inválido');
+
+    await this.userService.updateProfileByFirebaseUid(profile.firebaseUid, {
+      isTfaEnabled: true,
+    });
+
+    return { success: true, message: 'TFA habilitado' };
+  }
+
+  /**
+   * Registra un usuario. Crea la cuenta en Firebase Auth y, acto seguido,
+   * crea el perfil en MongoDB. Si la persistencia en Mongo falla, realiza
+   * rollback borrando el usuario creado en Firebase.
+   *
+   * @param dto `RegisterUserDto` con los datos de registro.
+   * @returns Objeto con `uid` y `email` del usuario creado en Firebase.
+   * @throws `BadRequestException` | `ConflictException` | `InternalServerErrorException`
+   *   según fallos de validación o errores al crear el usuario/perfil.
    */
   async registerUser(
     dto: RegisterUserDto,
@@ -45,7 +126,7 @@ export class AuthService {
         .map((err) => (err.constraints ? Object.values(err.constraints) : []))
         .flat();
       throw new BadRequestException({
-        message: 'Validation failed',
+        message: 'Validación fallida',
         errors: errs,
       });
     }
@@ -116,10 +197,18 @@ export class AuthService {
   }
 
   /**
-   * Solicita un código de recuperación: genera código y envía email.
+   * Solicita un código de recuperación para el email indicado y envía un
+   * correo con instrucciones si el usuario existe.
+   *
+   * @param dto Email del usuario que solicita recuperación
+   * @returns Mensaje público que no revela si el email existe o no
+   * @throws `InternalServerErrorException` si hay un fallo interno
    */
-  async requestPasswordReset(email: string) {
-    const publicResponse = {
+  async requestPasswordReset(
+    dto: PasswordRequestDto,
+  ): Promise<PasswordRequestResponse> {
+    const { email } = dto;
+    const publicResponse: PasswordRequestResponse = {
       success: true,
       message:
         'Si el correo está registrado, se ha enviado un código de recuperación.',
@@ -137,9 +226,15 @@ export class AuthService {
   }
 
   /**
-   * Resetea la contraseña verificando código y expiración.
+   * Resetea la contraseña verificando el código de recuperación y su
+   * expiración.
+   *
+   * @param dto `PasswordResetDto` con `email`, `code`, `newPassword` y
+   *   `confirmNewPassword`.
+   * @returns Mensaje de éxito tras actualizar la contraseña en Firebase
+   * @throws `NotFoundException` | `BadRequestException` | `InternalServerErrorException`
    */
-  async resetPassword(dto: PasswordResetDto) {
+  async resetPassword(dto: PasswordResetDto): Promise<PasswordResetResponse> {
     const { email, code, newPassword, confirmNewPassword } = dto;
     const user = await this.userService.findProfileByEmail(email);
     if (!user) {
@@ -182,11 +277,19 @@ export class AuthService {
   }
 
   /**
-  /**
-   * Verifica el correo electronico del usuario con la funcion de firebase.
-   * Genera un enlace de verificación usando el Admin SDK para el email proporcionado.
+   * Genera un enlace de verificación de correo para la dirección indicada
+   * y lo envía por email.
+   *
+   * @param dto Email al que se enviará el enlace de verificación
+   * @returns Mensaje de éxito si el enlace fue generado y enviado
+   * @throws `BadRequestException` si no se proporciona email,
+   *   `InternalServerErrorException` si la generación/envío falla
    */
-  async verifyEmail(email: string) {
+  async verifyEmail(dto: VerifyEmailDto): Promise<PasswordRequestResponse> {
+    const { email } = dto;
+    if (!email) {
+      throw new BadRequestException('Email requerido.');
+    }
     try {
       const link =
         await this.firebaseAdmin.auth.generateEmailVerificationLink(email);
@@ -203,16 +306,109 @@ export class AuthService {
   }
 
   /**
-   * Verifica un idToken (Bearer) con Firebase y devuelve información del usuario.
+   * Inicia el flujo de login: verifica un `idToken` de Firebase enviado en la
+   * cabecera `Authorization`. Si el usuario tiene 2FA habilitado, indica
+   * que se requiere TFA; en caso contrario genera un `customToken`.
+   *
+   * @param authorization Cabecera `Authorization: Bearer <idToken>`
+   * @returns Objeto indicando si `tfaRequired` y el `customToken` cuando no
+   *   se requiere TFA.
+   * @throws `UnauthorizedException` si falta la cabecera o el token no es válido.
    */
-  async verifyToken(authorization: string) {
+  async login(authorization: string): Promise<AuthLoginResponse> {
     if (!authorization) {
-      throw new UnauthorizedException('No token provided');
+      throw new UnauthorizedException('Token no proporcionado');
+    }
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    if (!match) {
+      throw new UnauthorizedException('Cabecera de autorización inválida');
+    }
+    const idToken = match[1];
+
+    try {
+      const decoded = await this.firebaseAdmin.auth.verifyIdToken(idToken);
+      const user = await this.userService.findOneByUid(decoded.uid);
+      if (user?.isTfaEnabled) {
+        return { tfaRequired: true, token: null, authenticated: false };
+      } else {
+        const customToken = await this.firebaseAdmin.auth.createCustomToken(
+          decoded.uid,
+        );
+        return { tfaRequired: false, token: customToken, authenticated: true };
+      }
+    } catch (error) {
+      throw new UnauthorizedException('Token inválido o expirado');
+    }
+  }
+
+  /**
+   * Valida el código TOTP durante el flujo de login cuando el usuario tiene
+   * TFA habilitado y, si es correcto, genera un `customToken` para que el
+   * cliente lo intercambie por una sesión Firebase.
+   *
+   * @param authorization Cabecera `Authorization: Bearer <idToken>`
+   * @param dto Código TOTP de 6 dígitos enviado por el cliente
+   * @returns `{ customToken, authenticated }` con el token a intercambiar
+   * @throws `UnauthorizedException` si el token o el código no son válidos
+   */
+  async loginTfa(
+    authorization: string,
+    dto: TfaCodeDto,
+  ): Promise<LoginTfaResponse> {
+    const { code } = dto;
+    if (!authorization) {
+      throw new UnauthorizedException('Token no proporcionado');
+    }
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    if (!match) {
+      throw new UnauthorizedException('Cabecera de autorización inválida');
+    }
+    const idToken = match[1];
+    try {
+      const decoded = await this.firebaseAdmin.auth.verifyIdToken(idToken);
+      const user = await this.userService.findOneByUid(decoded.uid);
+
+      if (!user || !user.isTfaEnabled || !user.tfaSecret) {
+        throw new UnauthorizedException('TFA no habilitado para este usuario');
+      }
+
+      const isCodeValid = await this.otpAuthenticatorService.verifyCode(
+        String(code).trim(),
+        user.tfaSecret,
+      );
+      if (!isCodeValid) {
+        throw new UnauthorizedException('Código TFA inválido');
+      }
+
+      const customToken = await this.firebaseAdmin.auth.createCustomToken(
+        decoded.uid,
+      );
+
+      return { customToken: customToken, authenticated: true };
+    } catch (error) {
+      throw new UnauthorizedException('Token inválido o expirado');
+    }
+  }
+
+  /**
+   * Verifica un `idToken` de Firebase y devuelve información pública del
+   * usuario junto con su estado de TFA.
+   *
+   * @param authorization Cabecera `Authorization: Bearer <idToken>`
+   * @returns Objeto con `success` y `data` (uid, email, emailVerified,
+   *   phoneNumber, name, userName, tfaEnabled)
+   * @throws `UnauthorizedException` si el token no es válido o expiró
+   */
+  async verifyToken(
+    authorization: string,
+  ): Promise<{ success: boolean; data: VerifyTokenResponse }> {
+    if (!authorization) {
+      throw new UnauthorizedException('Token no proporcionado');
     }
 
     const match = authorization.match(/^Bearer\s+(.+)$/i);
     if (!match) {
-      throw new UnauthorizedException('Invalid authorization header');
+      throw new UnauthorizedException('Cabecera de autorización inválida');
     }
 
     const idToken = match[1];
@@ -220,19 +416,22 @@ export class AuthService {
     try {
       const decoded = await this.firebaseAdmin.auth.verifyIdToken(idToken);
       const userRecord = await this.firebaseAdmin.auth.getUser(decoded.uid);
+      const user = await this.userService.findOneByUid(decoded.uid);
 
       return {
         success: true,
         data: {
           uid: decoded.uid,
-          email: decoded.email,
+          email: decoded.email ?? null,
           emailVerified: userRecord.emailVerified,
           phoneNumber: userRecord.phoneNumber ?? null,
           name: userRecord.displayName ?? null,
+          userName: user?.username ?? null,
+          tfaEnabled: user?.isTfaEnabled ?? false,
         },
       };
     } catch (err: any) {
-      throw new UnauthorizedException('Invalid or expired token');
+      throw new UnauthorizedException('Token inválido o expirado');
     }
   }
 }
