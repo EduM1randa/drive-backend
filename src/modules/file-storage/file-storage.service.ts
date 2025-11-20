@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { CreateFileStorageDto } from './dto/create-file-storage.dto';
 import { UpdateFileStorageDto } from './dto/update-file-storage.dto';
+import { FileStorage } from './schemas/file-storage.entity';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { BlobServiceClient } from '@azure/storage-blob';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 /**
@@ -8,24 +13,62 @@ import { UpdateFileStorageDto } from './dto/update-file-storage.dto';
  * CRUD básicas sobre metadatos de archivos.
  */
 export class FileStorageService {
+
+  private blobClient: BlobServiceClient;
+  private containerName: string;
+
+  constructor(
+    private config: ConfigService,
+    @InjectModel(FileStorage.name) private fileModel: Model<FileStorage>,
+  ) {
+    const conn = this.config.get<string>('AZURE_BLOB_CONNECTION_STRING');
+
+    console.log('Using connection:', conn);
+
+    // para probar con azurite no es necesario un valor .env
+    const container = this.config.get<string>('CONTAINER_NAME');
+
+    if (!conn) {
+      throw new Error('Missing AZURE_BLOB_CONNECTION_STRING in .env');
+    }
+
+    this.blobClient = BlobServiceClient.fromConnectionString(conn);
+    this.containerName = container ? container : "my-container"
+  }
+
   /** Crea un nuevo registro de FileStorage. */
-  create(createFileStorageDto: CreateFileStorageDto) {
-    return 'This action adds a new fileStorage';
+  async create(dto: CreateFileStorageDto) {
+    const file = new this.fileModel(dto);
+    return file.save();
   }
 
-  findAll() {
-    return `This action returns all fileStorage`;
+  async findAll() {
+    return this.fileModel.find().exec();
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} fileStorage`;
+  async findOne(id: string) {
+    return this.fileModel.findById(id).exec();
   }
 
-  update(id: number, updateFileStorageDto: UpdateFileStorageDto) {
-    return `This action updates a #${id} fileStorage`;
+  async update(id: string, dto: UpdateFileStorageDto) {
+    return this.fileModel.findByIdAndUpdate(id, dto, { new: true }).exec();
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} fileStorage`;
+  async remove(id: string) {
+    return this.fileModel.findByIdAndDelete(id).exec();
   }
+
+  async uploadToAzure(file: Express.Multer.File): Promise<string> {
+    const containerClient = this.blobClient.getContainerClient(this.containerName);
+
+    await containerClient.createIfNotExists();
+
+    const blobName = `${Date.now()}-${file.originalname}`;
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+    await blockBlobClient.uploadData(file.buffer);
+
+    return blockBlobClient.url;
+  }
+
 }
