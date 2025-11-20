@@ -5,8 +5,9 @@ import {
   HttpException,
   BadRequestException,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { UserRecord } from 'firebase-admin/auth';
+import { DecodedIdToken, UserRecord } from 'firebase-admin/auth';
 import { FirebaseAdminService } from '../firebase/firebase-admin.service';
 import { RegisterUserDto } from './dto/register.dto';
 import { plainToInstance } from 'class-transformer';
@@ -15,7 +16,6 @@ import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { OtpAuthenticatorService } from './otp-authenticator.service';
 import { PasswordResetDto } from './dto/pass-reset.dto';
-import { UnauthorizedException } from '@nestjs/common';
 import { PasswordRequestDto } from './dto/pass-request.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { TfaCodeDto } from './dto/tfa-code.dto';
@@ -28,6 +28,7 @@ import {
   TfaGenerateResponse,
   TfaConfirmResponse,
 } from '../../common/types/response.types';
+import { extractTokenFromHeader } from '../../common/utils/auth.util';
 
 @Injectable()
 /**
@@ -47,9 +48,10 @@ export class AuthService {
    * y retorna la URI para generar el QR en el controlador.
    */
   async generateTfaSecretForUser(
-    firebaseUid: string,
+    authorization: string,
   ): Promise<TfaGenerateResponse> {
-    const profile = await this.userService.findOneByUid(firebaseUid);
+    const userRecord = await this.decodeFbUserToken(authorization);
+    const profile = await this.userService.findOneByUid(userRecord.uid);
     if (!profile) throw new NotFoundException('Usuario no encontrado');
 
     if (profile.isTfaEnabled) {
@@ -79,13 +81,15 @@ export class AuthService {
    *   código es inválido.
    */
   async confirmTfaForUser(
-    firebaseUid: string,
+    authorization: string,
     dto: TfaCodeDto,
   ): Promise<TfaConfirmResponse> {
     const { code } = dto;
     if (!code) throw new BadRequestException('El código TFA es obligatorio');
 
-    const profile = await this.userService.findOneByUid(firebaseUid);
+    const userRecord = await this.decodeFbUserToken(authorization);
+
+    const profile = await this.userService.findOneByUid(userRecord.uid);
     if (!profile || !profile.tfaSecret) {
       throw new BadRequestException('TFA no iniciado para este usuario');
     }
@@ -316,23 +320,14 @@ export class AuthService {
    * @throws `UnauthorizedException` si falta la cabecera o el token no es válido.
    */
   async login(authorization: string): Promise<AuthLoginResponse> {
-    if (!authorization) {
-      throw new UnauthorizedException('Token no proporcionado');
-    }
-    const match = authorization.match(/^Bearer\s+(.+)$/i);
-    if (!match) {
-      throw new UnauthorizedException('Cabecera de autorización inválida');
-    }
-    const idToken = match[1];
-
     try {
-      const decoded = await this.firebaseAdmin.auth.verifyIdToken(idToken);
-      const user = await this.userService.findOneByUid(decoded.uid);
+      const userRecord = await this.decodeFbUserToken(authorization);
+      const user = await this.userService.findOneByUid(userRecord.uid);
       if (user?.isTfaEnabled) {
         return { tfaRequired: true, token: null, authenticated: false };
       } else {
         const customToken = await this.firebaseAdmin.auth.createCustomToken(
-          decoded.uid,
+          userRecord.uid,
         );
         return { tfaRequired: false, token: customToken, authenticated: true };
       }
@@ -356,17 +351,9 @@ export class AuthService {
     dto: TfaCodeDto,
   ): Promise<LoginTfaResponse> {
     const { code } = dto;
-    if (!authorization) {
-      throw new UnauthorizedException('Token no proporcionado');
-    }
-    const match = authorization.match(/^Bearer\s+(.+)$/i);
-    if (!match) {
-      throw new UnauthorizedException('Cabecera de autorización inválida');
-    }
-    const idToken = match[1];
     try {
-      const decoded = await this.firebaseAdmin.auth.verifyIdToken(idToken);
-      const user = await this.userService.findOneByUid(decoded.uid);
+      const userRecord = await this.decodeFbUserToken(authorization);
+      const user = await this.userService.findOneByUid(userRecord.uid);
 
       if (!user || !user.isTfaEnabled || !user.tfaSecret) {
         throw new UnauthorizedException('TFA no habilitado para este usuario');
@@ -381,7 +368,7 @@ export class AuthService {
       }
 
       const customToken = await this.firebaseAdmin.auth.createCustomToken(
-        decoded.uid,
+        userRecord.uid,
       );
 
       return { customToken: customToken, authenticated: true };
@@ -402,27 +389,15 @@ export class AuthService {
   async verifyToken(
     authorization: string,
   ): Promise<{ success: boolean; data: VerifyTokenResponse }> {
-    if (!authorization) {
-      throw new UnauthorizedException('Token no proporcionado');
-    }
-
-    const match = authorization.match(/^Bearer\s+(.+)$/i);
-    if (!match) {
-      throw new UnauthorizedException('Cabecera de autorización inválida');
-    }
-
-    const idToken = match[1];
-
     try {
-      const decoded = await this.firebaseAdmin.auth.verifyIdToken(idToken);
-      const userRecord = await this.firebaseAdmin.auth.getUser(decoded.uid);
-      const user = await this.userService.findOneByUid(decoded.uid);
+      const userRecord = await this.decodeFbUserToken(authorization);
+      const user = await this.userService.findOneByUid(userRecord.uid);
 
       return {
         success: true,
         data: {
-          uid: decoded.uid,
-          email: decoded.email ?? null,
+          uid: userRecord.uid,
+          email: userRecord.email ?? null,
           emailVerified: userRecord.emailVerified,
           phoneNumber: userRecord.phoneNumber ?? null,
           name: userRecord.displayName ?? null,
@@ -431,6 +406,24 @@ export class AuthService {
         },
       };
     } catch (err: any) {
+      throw new UnauthorizedException('Token inválido o expirado');
+    }
+  }
+
+  /**
+   * Decodifica el idToken de Firebase desde la cabecera Authorization.
+   * @param authorization Cabecera Authorization con el token Bearer
+   * @returns El token decodificado
+   */
+  async decodeFbUserToken(authorization: string) {
+    try {
+      const tokenId = await extractTokenFromHeader(authorization);
+      const decoded = await this.firebaseAdmin.auth.verifyIdToken(tokenId);
+      const user: UserRecord = await this.firebaseAdmin.auth.getUser(
+        decoded.uid,
+      );
+      return user;
+    } catch (error) {
       throw new UnauthorizedException('Token inválido o expirado');
     }
   }

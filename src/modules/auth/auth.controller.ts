@@ -5,7 +5,6 @@ import {
   Post,
   Body,
   Headers,
-  Req,
   Res,
 } from '@nestjs/common';
 import { RegisterUserDto } from './dto/register.dto';
@@ -14,7 +13,7 @@ import { PasswordRequestDto } from './dto/pass-request.dto';
 import { PasswordResetDto } from './dto/pass-reset.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { TfaCodeDto } from './dto/tfa-code.dto';
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { toFileStream } from 'qrcode';
 import { AuthGuard } from '@nestjs/passport';
 
@@ -42,6 +41,7 @@ export class AuthController {
    * @throws `UnauthorizedException` si la cabecera no está presente o el
    *   token es inválido/expirado.
    */
+  @UseGuards(AuthGuard('firebase-jwt'))
   @Get('verify-token')
   async verifyToken(@Headers('authorization') authorization: string) {
     return this.authService.verifyToken(authorization);
@@ -116,6 +116,7 @@ export class AuthController {
    *   `authenticated`.
    * @throws `UnauthorizedException` si falta o es inválida la cabecera.
    */
+  @UseGuards(AuthGuard('firebase-jwt'))
   @Post('login')
   async login(@Headers('authorization') authorization: string) {
     return this.authService.login(authorization);
@@ -153,9 +154,12 @@ export class AuthController {
    */
   @UseGuards(AuthGuard('firebase-jwt'))
   @Post('tfa/generate')
-  async generateTfaSecret(@Req() req: Request, @Res() res: Response) {
-    const user = req.user as { uid: string };
-    const { uri } = await this.authService.generateTfaSecretForUser(user.uid);
+  async generateTfaSecret(
+    @Headers('authorization') authorization: string,
+    @Res() res: Response,
+  ) {
+    const { uri } =
+      await this.authService.generateTfaSecretForUser(authorization);
 
     res.setHeader('Cache-Control', 'no-store');
     res.type('png');
@@ -177,8 +181,10 @@ export class AuthController {
    */
   @UseGuards(AuthGuard('firebase-jwt'))
   @Post('tfa/confirm')
-  async confirmTfa(@Req() req: Request, @Body() dto: TfaCodeDto) {
-    const user = req.user as { uid: string };
-    return this.authService.confirmTfaForUser(user.uid, dto);
+  async confirmTfa(
+    @Headers('authorization') authorization: string,
+    @Body() dto: TfaCodeDto,
+  ) {
+    return this.authService.confirmTfaForUser(authorization, dto);
   }
 }
