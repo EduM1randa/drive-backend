@@ -8,13 +8,12 @@ import {
   Delete,
   UseInterceptors,
   UploadedFile,
-  UsePipes,
-  ValidationPipe,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FileStorageService } from './file-storage.service';
-import { CreateFileStorageDto } from './dto/create-file-storage.dto';
 import { UpdateFileStorageDto } from './dto/update-file-storage.dto';
+import { extractTokenFromHeader } from '../../common/utils/auth.util';
 
 /**
  * Controlador para endpoints relacionados con el almacenamiento de archivos.
@@ -26,19 +25,14 @@ export class FileStorageController {
   /** Crea un nuevo metadato de archivo. */
   @Post()
   @UseInterceptors(FileInterceptor('file'))
-  @UsePipes(new ValidationPipe({ transform: true, whitelist: false }))
-  async create(@UploadedFile() file: Express.Multer.File) {
-    console.log("FILE RECEIVED:", file);
-    const url = await this.fileStorageService.uploadToAzure(file);
-
-    const dto: CreateFileStorageDto = {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size,
-      url,
-    };
-
-    return this.fileStorageService.create(dto);
+  async create(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req,
+    @Body('path') path: string = ''
+  ) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    console.log("firebaseid: ", firebaseId)
+    return this.fileStorageService.upload(file, firebaseId, path);
   }
 
   /** Devuelve todos los registros de file storage. */

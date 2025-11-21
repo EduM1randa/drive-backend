@@ -7,9 +7,9 @@ Extrae el token del encabezado Authorization.
 @returns El token extraído.
 @throws UnauthorizedException Si el encabezado no está presente o tiene un formato inválido.
 */
-export async function extractTokenFromHeader(
+export function extractTokenFromHeader(
   authorizationHeader: string,
-): Promise<string> {
+): string {
   if (!authorizationHeader) {
     throw new UnauthorizedException('Token no proporcionado');
   }

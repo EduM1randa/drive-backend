@@ -322,6 +322,7 @@ export class AuthService {
   async login(authorization: string): Promise<AuthLoginResponse> {
     try {
       const userRecord = await this.decodeFbUserToken(authorization);
+      console.log(authorization)
       const user = await this.userService.findOneByUid(userRecord.uid);
       if (user?.isTfaEnabled) {
         return { tfaRequired: true, token: null, authenticated: false };

@@ -16,7 +16,16 @@ export class FileStorage extends Document {
   size: number;
 
   @Prop({ required: true })
-  url: string; // URL in Azure, S3, local, etc.
+  url: string;
+
+  @Prop({ required: true })
+  firebaseId: string;
+
+  @Prop({ required: true })
+  container: string;
+
+  @Prop({ required: true })
+  blobName: string;
 }
 
 export const FileStorageSchema = SchemaFactory.createForClass(FileStorage);

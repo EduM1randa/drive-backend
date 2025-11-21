@@ -3,4 +3,8 @@ export class CreateFileStorageDto {
   mimetype: string;
   size: number;
   url: string;
+  firebaseId: string;
+  container: string;
+  blobName: string;
+  path: string;
 }
