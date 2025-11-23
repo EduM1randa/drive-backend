@@ -1,0 +1,14 @@
+node_modules
+dist
+npm-debug.log
+.env
+.git
+.gitignore
+README.md
+.vscode
+coverage
+.nyc_output
+*.log
+logs-*
+deploy-temp
+*.zip

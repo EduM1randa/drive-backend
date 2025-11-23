@@ -1,3 +1,4 @@
+import 'multer';
 import {
   Controller,
   Get,
@@ -20,7 +21,7 @@ import { extractTokenFromHeader } from '../../common/utils/auth.util';
  */
 @Controller('file-storage')
 export class FileStorageController {
-  constructor(private readonly fileStorageService: FileStorageService) {}
+  constructor(private readonly fileStorageService: FileStorageService) { }
 
   /** Crea un nuevo metadato de archivo. */
   @Post()

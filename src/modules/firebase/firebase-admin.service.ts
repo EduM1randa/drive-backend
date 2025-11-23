@@ -15,7 +15,7 @@ import { resolve } from 'path';
 export class FirebaseAdminService implements OnModuleInit {
   public auth: admin.auth.Auth;
 
-  constructor(private configService: ConfigService) {}
+  constructor(private configService: ConfigService) { }
 
   /**
    * Inicializa el SDK de Firebase Admin usando la ruta definida en
@@ -23,26 +23,39 @@ export class FirebaseAdminService implements OnModuleInit {
    * si la variable no está definida o el archivo no existe.
    */
   onModuleInit() {
-    const filePath = this.configService.get<string>(
+    const firebaseConfig = this.configService.get<string>(
       'FIREBASE_SERVICE_ACCOUNT_KEY',
     );
 
-    if (!filePath) {
+    if (!firebaseConfig) {
       throw new InternalServerErrorException(
         'FIREBASE_SERVICE_ACCOUNT_KEY no está definida.',
       );
     }
 
     try {
-      const absolutePath = resolve(process.cwd(), filePath);
+      let credential;
 
-      if (!existsSync(absolutePath)) {
-        throw new Error(`Fichero no encontrado: ${absolutePath}`);
+      // Check if the config is a JSON string (starts with '{')
+      if (firebaseConfig.trim().startsWith('{')) {
+        try {
+          const serviceAccount = JSON.parse(firebaseConfig);
+          credential = admin.credential.cert(serviceAccount);
+        } catch (e) {
+          throw new Error('El contenido de FIREBASE_SERVICE_ACCOUNT_KEY no es un JSON válido.');
+        }
+      } else {
+        // Assume it's a file path
+        const absolutePath = resolve(process.cwd(), firebaseConfig);
+        if (!existsSync(absolutePath)) {
+          throw new Error(`Fichero no encontrado: ${absolutePath}`);
+        }
+        credential = admin.credential.cert(absolutePath);
       }
 
       if (!admin.apps.length) {
         admin.initializeApp({
-          credential: admin.credential.cert(absolutePath),
+          credential,
         });
       }
 

@@ -21,14 +21,12 @@ export class FileStorageService {
     private config: ConfigService,
     @InjectModel(FileStorage.name) private fileModel: Model<FileStorage>,
   ) {
-    const conn = this.config.get<string>('AZURE_BLOB_CONNECTION_STRING');
+    // Use configured connection string or fallback to Azurite (local emulator)
+    // This allows the app to start even if Azure Storage is not yet provisioned
+    const azuriteConn = 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1';
+    const conn = this.config.get<string>('AZURE_BLOB_CONNECTION_STRING') || azuriteConn;
 
-    // para probar con azurite no es necesario un valor .env
     const container = this.config.get<string>('CONTAINER_NAME');
-
-    if (!conn) {
-      throw new Error('Missing AZURE_BLOB_CONNECTION_STRING in .env');
-    }
 
     this.blobClient = BlobServiceClient.fromConnectionString(conn);
     this.containerName = container ? container : "my-container"
@@ -71,7 +69,7 @@ export class FileStorageService {
     firebaseId: string,
     path: string = ''
   ) {
-    const normalizedPath = path.trim().replace(/^\/+|\/+$/g, ''); 
+    const normalizedPath = path.trim().replace(/^\/+|\/+$/g, '');
     const prefix = normalizedPath ? normalizedPath + '/' : '';
 
     const blobName = `${prefix}${Date.now()}-${file.originalname}`;

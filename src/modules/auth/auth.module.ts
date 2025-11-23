@@ -4,7 +4,7 @@ import { FirebaseJwtStrategy } from '../firebase/firebase-jwt.strategy';
 import { ConfigModule } from '@nestjs/config';
 import { FirebaseAdminModule } from '../firebase/firebase-admin.module';
 import { AuthController } from './auth.controller';
-import { IsUsernameAvailable } from 'src/common/validators/username-exist.validator';
+import { IsUsernameAvailable } from '../../common/validators/username-exist.validator';
 import { UsersModule } from '../users/users.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { User, UserSchema } from '../users/schemas/user.schema';
@@ -29,4 +29,4 @@ import { OtpAuthenticatorService } from './otp-authenticator.service';
   ],
   exports: [PassportModule, FirebaseJwtStrategy],
 })
-export class AuthModule {}
+export class AuthModule { }
