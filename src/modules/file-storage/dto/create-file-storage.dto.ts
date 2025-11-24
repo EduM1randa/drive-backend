@@ -7,4 +7,6 @@ export class CreateFileStorageDto {
   container: string;
   blobName: string;
   path: string;
+  isFolder?: boolean;
+  parentId?: string;
 }

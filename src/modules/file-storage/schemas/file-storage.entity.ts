@@ -26,6 +26,12 @@ export class FileStorage extends Document {
 
   @Prop({ required: true })
   blobName: string;
+
+  @Prop({ default: false })
+  isFolder: boolean;
+
+  @Prop({ default: null })
+  parentId: string;
 }
 
 export const FileStorageSchema = SchemaFactory.createForClass(FileStorage);

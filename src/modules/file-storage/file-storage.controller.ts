@@ -29,17 +29,30 @@ export class FileStorageController {
   async create(
     @UploadedFile() file: Express.Multer.File,
     @Req() req,
-    @Body('path') path: string = ''
+    @Body('path') path: string = '',
+    @Body('parentId') parentId?: string
   ) {
     const firebaseId = extractTokenFromHeader(req.headers['authorization']);
     console.log("firebaseid: ", firebaseId)
-    return this.fileStorageService.upload(file, firebaseId, path);
+    return this.fileStorageService.upload(file, firebaseId, path, parentId);
+  }
+
+  /** Crea una nueva carpeta. */
+  @Post('folder')
+  async createFolder(
+    @Req() req,
+    @Body('name') name: string,
+    @Body('parentId') parentId?: string
+  ) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    return this.fileStorageService.createFolder(name, firebaseId, parentId);
   }
 
   /** Devuelve todos los registros de file storage. */
   @Get()
-  findAll() {
-    return this.fileStorageService.findAll();
+  findAll(@Req() req) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    return this.fileStorageService.findAll(firebaseId);
   }
 
   /** Devuelve un registro específico por id. */

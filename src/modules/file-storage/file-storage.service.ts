@@ -38,8 +38,17 @@ export class FileStorageService {
     return file.save();
   }
 
-  async findAll() {
-    return this.fileModel.find().exec();
+  async findAll(firebaseId: string, parentId?: string) {
+    const query: any = { firebaseId };
+
+    // Filter by parentId if provided, otherwise show root items (parentId is null or undefined)
+    if (parentId !== undefined) {
+      query.parentId = parentId;
+    } else {
+      query.parentId = { $in: [null, undefined] };
+    }
+
+    return this.fileModel.find(query).exec();
   }
 
   async findOne(id: string) {
@@ -57,19 +66,40 @@ export class FileStorageService {
       throw new NotFoundException('File not found');
     }
 
-    await this.deleteFromAzure(file.container, file.blobName);
+    // Only delete from Azure if it's a file (not a folder)
+    if (!file.isFolder) {
+      await this.deleteFromAzure(file.container, file.blobName);
+    }
 
     await this.fileModel.findByIdAndDelete(id).exec();
 
     return { success: true, message: 'File deleted successfully' };
   }
 
+  async createFolder(name: string, firebaseId: string, parentId?: string) {
+    const dto: CreateFileStorageDto = {
+      filename: name,
+      mimetype: 'folder',
+      size: 0,
+      url: '',
+      firebaseId,
+      blobName: '',
+      container: '',
+      path: '',
+      isFolder: true,
+      parentId: parentId || null,
+    };
+
+    return this.create(dto);
+  }
+
   async upload(
     file: Express.Multer.File,
     firebaseId: string,
-    path: string = ''
+    path: string = '',
+    parentId?: string
   ) {
-    const normalizedPath = path.trim().replace(/^\/+|\/+$/g, '');
+    const normalizedPath = path.trim().replace(/^\\/ +|\\/+$/g, '');
     const prefix = normalizedPath ? normalizedPath + '/' : '';
 
     const blobName = `${prefix}${Date.now()}-${file.originalname}`;
@@ -86,6 +116,8 @@ export class FileStorageService {
       blobName,
       container,
       path: normalizedPath || '', // root as empty string
+      isFolder: false,
+      parentId: parentId || null,
     };
 
     return this.create(dto);
