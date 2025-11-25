@@ -3,9 +3,12 @@ import { CreateFileStorageDto } from './dto/create-file-storage.dto';
 import { UpdateFileStorageDto } from './dto/update-file-storage.dto';
 import { FileStorage } from './schemas/file-storage.entity';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, FilterQuery } from 'mongoose';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { ConfigService } from '@nestjs/config';
+import { Response } from 'express';
+import { FirebaseAdminService } from '../firebase/firebase-admin.service';
+import { extractTokenFromHeader } from '../../common/utils/auth.util';
 
 @Injectable()
 /**
@@ -13,13 +16,13 @@ import { ConfigService } from '@nestjs/config';
  * CRUD básicas sobre metadatos de archivos.
  */
 export class FileStorageService {
-
   private blobClient: BlobServiceClient;
   private containerName: string;
 
   constructor(
     private config: ConfigService,
     @InjectModel(FileStorage.name) private fileModel: Model<FileStorage>,
+    private firebaseAdmin: FirebaseAdminService,
   ) {
     // Use configured connection string or fallback to Azurite (local emulator)
     // This allows the app to start even if Azure Storage is not yet provisioned
@@ -29,7 +32,7 @@ export class FileStorageService {
     const container = this.config.get<string>('CONTAINER_NAME');
 
     this.blobClient = BlobServiceClient.fromConnectionString(conn);
-    this.containerName = container ? container : "my-container"
+    this.containerName = container ? container : 'my-container';
   }
 
   /** Crea un nuevo registro de FileStorage. */
@@ -38,12 +41,36 @@ export class FileStorageService {
     return file.save();
   }
 
+  /**
+   * Obtiene el uid de Firebase a partir del header Authorization `Bearer <idToken>`.
+   */
+  private async getFirebaseUidFromAuthorization(authorization: string): Promise<string> {
+    const idToken = extractTokenFromHeader(authorization);
+    const decoded = await this.firebaseAdmin.auth.verifyIdToken(idToken);
+    return decoded.uid;
+  }
+
   async findAll() {
     return this.fileModel.find().exec();
   }
 
   async findOne(id: string) {
     return this.fileModel.findById(id).exec();
+  }
+
+  /**
+   * Devuelve los archivos asociados al uid de Firebase.
+   * @param authorization Header Authorization con el idToken de Firebase.
+   */
+  async findByUser(authorization: string, path?: string) {
+    const firebaseUid = await this.getFirebaseUidFromAuthorization(authorization);
+    const filter: FilterQuery<FileStorage> = { firebaseId: firebaseUid };
+
+    if (path !== undefined) {
+      filter.path = this.normalizePath(path);
+    }
+
+    return this.fileModel.find(filter).exec();
   }
 
   async update(id: string, dto: UpdateFileStorageDto) {
@@ -66,26 +93,29 @@ export class FileStorageService {
 
   async upload(
     file: Express.Multer.File,
-    firebaseId: string,
-    path: string = ''
+    authorization: string,
+    path: string = '',
   ) {
-    const normalizedPath = path.trim().replace(/^\/+|\/+$/g, '');
-    const prefix = normalizedPath ? normalizedPath + '/' : '';
+    const normalizedPath = this.normalizePath(path);
+    const prefix = normalizedPath ? `${normalizedPath}/` : '';
 
     const blobName = `${prefix}${Date.now()}-${file.originalname}`;
 
     const { url, container } =
       await this.uploadToAzureRaw(file.buffer, blobName);
 
+    // obtenemos el uid real del usuario
+    const firebaseUid = await this.getFirebaseUidFromAuthorization(authorization);
+
     const dto: CreateFileStorageDto = {
       filename: file.originalname,
       mimetype: file.mimetype,
       size: file.size,
       url,
-      firebaseId,
+      firebaseId: firebaseUid, // guardamos el uid, no el token
       blobName,
       container,
-      path: normalizedPath || '', // root as empty string
+      path: normalizedPath,
     };
 
     return this.create(dto);
@@ -129,6 +159,46 @@ export class FileStorageService {
     const containerClient = this.blobClient.getContainerClient(container);
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.deleteIfExists();
+  }
+
+  /** Stream del blob desde Azure hacia la respuesta HTTP. */
+  async streamFromAzure(
+    container: string,
+    blobName: string,
+    res: Response,
+    mimetype?: string,
+    filename?: string,
+  ) {
+    const containerClient = this.blobClient.getContainerClient(container);
+    const blobClient = containerClient.getBlobClient(blobName);
+
+    const exists = await blobClient.exists();
+    if (!exists) {
+      throw new NotFoundException('Blob not found');
+    }
+
+    const downloadResponse = await blobClient.download();
+    res.setHeader(
+      'Content-Type',
+      mimetype || downloadResponse.contentType || 'application/octet-stream',
+    );
+    if (filename) {
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="${encodeURIComponent(filename)}"`,
+      );
+    }
+
+    const readableStream = downloadResponse.readableStreamBody;
+    if (!readableStream) {
+      throw new NotFoundException('Blob stream not available');
+    }
+    readableStream.pipe(res);
+  }
+
+  private normalizePath(path?: string | null): string {
+    if (!path) return '';
+    return path.trim().replace(/^\/+|\/+$/g, '');
   }
 
 }

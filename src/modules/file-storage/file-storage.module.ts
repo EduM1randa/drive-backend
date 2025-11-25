@@ -6,6 +6,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { MulterModule } from '@nestjs/platform-express';
 import multer from 'multer';
+import { FirebaseAdminModule } from '../firebase/firebase-admin.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import multer from 'multer';
       storage: multer.memoryStorage(),
     }),
     ConfigModule,
+    FirebaseAdminModule,
     MongooseModule.forFeature([
       { name: FileStorage.name, schema: FileStorageSchema },
     ]),

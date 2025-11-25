@@ -9,12 +9,14 @@ import {
   Delete,
   UseInterceptors,
   UploadedFile,
-  Req,
+  Res,
+  NotFoundException,
+  Headers,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FileStorageService } from './file-storage.service';
 import { UpdateFileStorageDto } from './dto/update-file-storage.dto';
-import { extractTokenFromHeader } from '../../common/utils/auth.util';
 
 /**
  * Controlador para endpoints relacionados con el almacenamiento de archivos.
@@ -28,12 +30,19 @@ export class FileStorageController {
   @UseInterceptors(FileInterceptor('file'))
   async create(
     @UploadedFile() file: Express.Multer.File,
-    @Req() req,
-    @Body('path') path: string = ''
+    @Headers('authorization') authorization: string,
+    @Body('path') path: string = '',
   ) {
-    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
-    console.log("firebaseid: ", firebaseId)
-    return this.fileStorageService.upload(file, firebaseId, path);
+    return this.fileStorageService.upload(file, authorization, path);
+  }
+
+  /**
+   * Devuelve los archivos pertenecientes al usuario autenticado.
+   * Opcionalmente se puede filtrar por `path` (?path=/carpeta/subcarpeta).
+   */
+  @Get('user')
+  async findUserFiles(@Headers('authorization') authorization: string) {
+    return this.fileStorageService.findByUser(authorization);
   }
 
   /** Devuelve todos los registros de file storage. */
@@ -46,6 +55,26 @@ export class FileStorageController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.fileStorageService.findOne(id);
+  }
+
+  /** Stream de descarga del archivo desde Azure mediante el backend. */
+  @Get(':id/download')
+  async download(@Param('id') id: string, @Res() res: Response) {
+    const file = await this.fileStorageService.findOne(id);
+
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    // Opcional: aquí podrías validar el JWT si quieres proteger la descarga
+
+    await this.fileStorageService.streamFromAzure(
+      file.container,
+      file.blobName,
+      res,
+      file.mimetype,
+      file.filename,
+    );
   }
 
   /** Actualiza un registro de file storage. */
