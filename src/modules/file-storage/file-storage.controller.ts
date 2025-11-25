@@ -75,4 +75,23 @@ export class FileStorageController {
   remove(@Param('id') id: string) {
     return this.fileStorageService.remove(id);
   }
+
+  // --- Sharing Endpoints ---
+
+  @Post(':id/share')
+  async generateShareLink(@Param('id') id: string, @Req() req) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    return this.fileStorageService.generateShareToken(id, firebaseId);
+  }
+
+  @Delete(':id/share')
+  async revokeShareLink(@Param('id') id: string, @Req() req) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    return this.fileStorageService.revokeShare(id, firebaseId);
+  }
+
+  @Get('shared/:token')
+  async getSharedFile(@Param('token') token: string) {
+    return this.fileStorageService.getFileByShareToken(token);
+  }
 }

@@ -6,7 +6,8 @@ export class CreateFileStorageDto {
   firebaseId: string;
   container: string;
   blobName: string;
-  path: string;
-  isFolder?: boolean;
-  parentId?: string;
+  readonly path: string;
+  readonly isFolder?: boolean;
+  readonly parentId?: string;
+  readonly shareToken?: string;
 }

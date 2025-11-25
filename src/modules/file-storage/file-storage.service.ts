@@ -87,7 +87,7 @@ export class FileStorageService {
       container: '',
       path: '',
       isFolder: true,
-      parentId: parentId || null,
+      parentId: parentId || undefined,
     };
 
     return this.create(dto);
@@ -99,7 +99,7 @@ export class FileStorageService {
     path: string = '',
     parentId?: string
   ) {
-    const normalizedPath = path.trim().replace(/^\\/ +|\\/+$/g, '');
+    const normalizedPath = path.trim().replace(/^[\/\\]+|[\/\\]+$/g, '');
     const prefix = normalizedPath ? normalizedPath + '/' : '';
 
     const blobName = `${prefix}${Date.now()}-${file.originalname}`;
@@ -117,7 +117,7 @@ export class FileStorageService {
       container,
       path: normalizedPath || '', // root as empty string
       isFolder: false,
-      parentId: parentId || null,
+      parentId: parentId || undefined,
     };
 
     return this.create(dto);
@@ -138,29 +138,39 @@ export class FileStorageService {
     };
   }
 
-  // no la estoy usando pero puede usarse en caso que sea necesario
-  async uploadToAzure(file: Express.Multer.File): Promise<{ url: string; blobName: string; container: string }> {
-
-    const container = this.containerName;
-    const containerClient = this.blobClient.getContainerClient(this.containerName);
-    await containerClient.createIfNotExists();
-
-    const blobName = `${Date.now()}-${file.originalname}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-
-    await blockBlobClient.uploadData(file.buffer);
-
-    return {
-      url: blockBlobClient.url,
-      blobName,
-      container,
-    };
-  }
-
-  async deleteFromAzure(container: string, blobName: string) {
-    const containerClient = this.blobClient.getContainerClient(container);
+  async deleteFromAzure(containerName: string, blobName: string) {
+    const containerClient = this.blobClient.getContainerClient(containerName);
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.deleteIfExists();
   }
 
+  // --- Sharing Functionality ---
+
+  async generateShareToken(id: string, firebaseId: string) {
+    const file = await this.fileModel.findOne({ _id: id, firebaseId }).exec();
+    if (!file) throw new NotFoundException('File not found or access denied');
+
+    // Generate a simple UUID-like token
+    const token = crypto.randomUUID();
+    file.shareToken = token;
+    await file.save();
+
+    return { success: true, shareToken: token };
+  }
+
+  async revokeShare(id: string, firebaseId: string) {
+    const file = await this.fileModel.findOne({ _id: id, firebaseId }).exec();
+    if (!file) throw new NotFoundException('File not found or access denied');
+
+    file.shareToken = null;
+    await file.save();
+
+    return { success: true, message: 'Share revoked' };
+  }
+
+  async getFileByShareToken(token: string) {
+    const file = await this.fileModel.findOne({ shareToken: token }).exec();
+    if (!file) throw new NotFoundException('Shared file not found or link expired');
+    return file;
+  }
 }

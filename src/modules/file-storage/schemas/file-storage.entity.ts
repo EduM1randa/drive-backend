@@ -32,6 +32,9 @@ export class FileStorage extends Document {
 
   @Prop({ default: null })
   parentId: string;
+
+  @Prop({ default: null })
+  shareToken: string | null;
 }
 
 export const FileStorageSchema = SchemaFactory.createForClass(FileStorage);
