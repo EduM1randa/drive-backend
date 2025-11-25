@@ -10,6 +10,7 @@ import {
   UseInterceptors,
   UploadedFile,
   Req,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FileStorageService } from './file-storage.service';
@@ -50,15 +51,35 @@ export class FileStorageController {
 
   /** Devuelve todos los registros de file storage. */
   @Get()
-  findAll(@Req() req) {
-    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
-    return this.fileStorageService.findAll(firebaseId);
+  findAll() {
+    // Temporarily public - returns all files without auth
+    return this.fileStorageService.findAll(undefined);
   }
 
-  /** Devuelve un registro específico por id. */
+  /** Returns top 5 most downloaded files for the authenticated user. */
+  @Get('top-downloads')
+  async getTopDownloads(@Req() req) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    return this.fileStorageService.getTopDownloads(firebaseId);
+  }
+
+  /** Devuelve un registro específico por id con SAS URL para acceso seguro. */
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.fileStorageService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    const file = await this.fileStorageService.findOne(id);
+
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    // Generate SAS URL for secure access (only for files, not folders)
+    if (!file.isFolder && file.blobName) {
+      const sasUrl = await this.fileStorageService.generateSASUrl(id, firebaseId);
+      return { ...file.toObject(), url: sasUrl };
+    }
+
+    return file;
   }
 
   /** Actualiza un registro de file storage. */
@@ -92,6 +113,24 @@ export class FileStorageController {
 
   @Get('shared/:token')
   async getSharedFile(@Param('token') token: string) {
-    return this.fileStorageService.getFileByShareToken(token);
+    const file = await this.fileStorageService.getFileByShareToken(token);
+
+    // Generate fresh SAS token for shared file access (permanent link, temporary token)
+    if (!file.isFolder && file.blobName) {
+      const sasUrl = await this.fileStorageService.generatePublicSASUrl(file);
+      return { ...file.toObject(), url: sasUrl };
+    }
+
+    return file;
   }
+
+  /** Tracks a file download (increments counter). */
+  @Post(':id/track-download')
+  async trackDownload(@Param('id') id: string, @Req() req) {
+    const firebaseId = extractTokenFromHeader(req.headers['authorization']);
+    await this.fileStorageService.trackDownload(id, firebaseId);
+    return { success: true, message: 'Download tracked' };
+  }
+
+
 }

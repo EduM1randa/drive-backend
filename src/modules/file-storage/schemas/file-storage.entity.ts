@@ -15,16 +15,16 @@ export class FileStorage extends Document {
   @Prop({ required: true })
   size: number;
 
-  @Prop({ required: true })
+  @Prop()
   url: string;
 
   @Prop({ required: true })
   firebaseId: string;
 
-  @Prop({ required: true })
+  @Prop()
   container: string;
 
-  @Prop({ required: true })
+  @Prop()
   blobName: string;
 
   @Prop({ default: false })
@@ -33,8 +33,14 @@ export class FileStorage extends Document {
   @Prop({ default: null })
   parentId: string;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   shareToken: string | null;
+
+  @Prop({ default: 0 })
+  downloadCount: number;
+
+  @Prop({ type: Date, default: null })
+  lastDownloadedAt: Date | null;
 }
 
 export const FileStorageSchema = SchemaFactory.createForClass(FileStorage);
